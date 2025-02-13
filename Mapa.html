@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clima em Tempo Real</title>
+
+  <!-- Bootstrap CSS -->
+  <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Leaflet Control Geocoder CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css">
+
+  <link rel="icon" href="https://img.icons8.com/color/48/wind.png" type="image/svg+xml">
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      height: 100vh;
+      margin: 0;
+    }
+
+    #map {
+      height: 100%;
+      width: 70%;
+    }
+
+    .info-panel {
+      padding: 20px;
+      background-color: #f8f9fa;
+      width: 30%;
+      border-left: 1px solid #ddd;
+      overflow-y: auto;
+    }
+
+    .info-header {
+      font-size: 1.4em;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    .control-panel {
+      margin-top: 20px;
+    }
+
+    .control-panel button {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    .control-panel input[type="range"] {
+      width: 100%;
+    }
+
+    .control-panel label {
+      font-weight: bold;
+    }
+
+    .current-data {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="map"></div>
+
+  <div class="info-panel">
+    <div class="info-header">Previsão do Tempo - Local Selecionado</div>
+    <div id="currentData">Selecione um local no mapa para visualizar os dados.</div>
+
+    <div class="control-panel">
+      <h5>Atualizações Automáticas</h5>
+      <button id="startBtn" class="btn btn-primary"><i class="bi bi-play-circle"></i> Iniciar Atualização</button>
+      <button id="stopBtn" class="btn btn-danger" disabled><i class="bi bi-stop-circle"></i> Parar Atualização</button>
+
+      <label for="timeSlider">Intervalo de Atualização:</label>
+      <input type="range" id="timeSlider" min="1" max="60" value="5" step="1">
+      <span id="timeLabel">Intervalo: 5 min</span>
+
+      <button id="zoomToLocation" class="btn btn-secondary mt-3"><i class="bi bi-zoom-in"></i> Dar Zoom no Local</button>
+
+      <button id="goToPage" class="btn btn-secondary mt-3" onclick="location.href='Painel Climático Celulose.html'">
+        <i class="bi bi-arrow-right-circle"></i> Voltar
+      </button>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS and jQuery -->
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+  <script>
+  const calculateDewPoint = (temp, humidity) => {
+  const a = 17.27;
+  const b = 237.7;
+  const alpha = ((a * temp) / (b + temp)) + Math.log(humidity / 100);
+  return (b * alpha) / (a - alpha);
+};
+
+const getUVIndex = (lat, lon) => {
+  fetch(`https://api.openweathermap.org/data/2.5/uvi?lat=${lat}&lon=${lon}&appid=${apiKey}`)
+    .then(response => response.json())
+    .then(data => {
+      const uvi = data.value;
+      document.getElementById("currentData").innerHTML += `
+        <div><strong>Índice UV:</strong> ${uvi}</div>
+      `;
+    })
+    .catch(err => console.error('Erro ao obter índice UV:', err));
+};
+
+    const apiKey = '613afdcb11a933bbcf162ecf19c55f66';
+    let intervalId = null;
+    let currentMarker = null;
+
+    const initialLat = -18.037790;
+    const initialLon = -39.921613;
+
+    const map = L.map('map').setView([initialLat, initialLon], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    currentMarker = L.marker([initialLat, initialLon]).addTo(map);
+    map.setView([initialLat, initialLon], 10);
+
+    const addWeatherLayers = () => {
+      const precipLayer = L.tileLayer(
+        `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+        { opacity: 0.7 }
+      ).addTo(map);
+
+      const tempLayer = L.tileLayer(
+        `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+        { opacity: 0.7 }
+      ).addTo(map);
+
+      const windLayer = L.tileLayer(
+        `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+        { opacity: 0.7 }
+      ).addTo(map);
+
+      const cloudsLayer = L.tileLayer(
+        `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+        { opacity: 0.7 }
+      ).addTo(map);
+
+      const rainLayer = L.tileLayer(
+        `https://tile.openweathermap.org/map/rain_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+        { opacity: 0.7 }
+      ).addTo(map);
+
+      const pressureLayer = L.tileLayer(
+    `https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+    { opacity: 0.7 }
+  ).addTo(map);
+
+  const dewpointLayer = L.tileLayer(
+    `https://tile.openweathermap.org/map/dewpoint_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+    { opacity: 0.7 }
+  ).addTo(map);
+
+  const uviLayer = L.tileLayer(
+    `https://tile.openweathermap.org/map/uvi_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+    { opacity: 0.7 }
+  ).addTo(map);
+
+  const snowLayer = L.tileLayer(
+    `https://tile.openweathermap.org/map/snow_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+    { opacity: 0.7 }
+  ).addTo(map);
+
+  const fireLayer = L.tileLayer(
+    `https://tile.openweathermap.org/map/fire_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+    { opacity: 0.7 }
+  ).addTo(map);
+
+      const layersControl = {
+  "Precipitação": precipLayer,
+  "Temperatura": tempLayer,
+  "Vento": windLayer,
+  "Nuvens": cloudsLayer,
+  "Chuva": rainLayer,
+  "Pressão": pressureLayer,
+  "Ponto de Orvalho": dewpointLayer,
+  "Índice UV": uviLayer,
+  "Índice de Incêndio": fireLayer,
+};
+
+L.control.layers(layersControl).addTo(map);
+
+    };
+
+const getWeatherData = (lat, lon) => {
+  fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`)
+    .then(response => response.json())
+    .then(data => {
+      const temp = Math.round(data.main.temp);
+      const windSpeed = (data.wind.speed * 3.6).toFixed(0); // Velocidade do vento em km/h
+      const humidity = data.main.humidity;
+      const rain = data.rain ? data.rain["1h"] : 0;
+      const pressure = data.main.pressure;
+      const dewPoint = calculateDewPoint(temp, humidity).toFixed(0); // Ponto de orvalho arredondado
+      const snow = data.snow ? data.snow["1h"] : 0;
+      const time = new Date(data.dt * 1000).toLocaleString();
+      const weatherDescription = data.weather[0].description; // Descrição do clima (ex: "clear sky", "light rain", etc.)
+
+      let simpleWeather = '';
+
+      // Tradução das condições climáticas para português
+      if (weatherDescription.includes('clear')) {
+        simpleWeather = 'Céu Claro';
+      } else if (weatherDescription.includes('rain')) {
+        simpleWeather = 'Chuva';
+      } else if (weatherDescription.includes('cloud')) {
+        simpleWeather = 'Encoberto';
+      } else if (weatherDescription.includes('fog')) {
+        simpleWeather = 'Nebuloso';
+      } else if (weatherDescription.includes('storm')) {
+        simpleWeather = 'Tempestade';
+      } else if (weatherDescription.includes('snow')) {
+        simpleWeather = 'Neve';
+      } else if (weatherDescription.includes('haze')) {
+        simpleWeather = 'Bruma';
+      } else {
+        simpleWeather = 'Condição Climática Indefinida';
+      }
+
+      // A probabilidade de precipitação (chuva) é fornecida em % na previsão.
+      const rainProbability = data.pop ? (data.pop * 100).toFixed(0) : 0; // probabilidade de chuva em %
+
+      document.getElementById("currentData").innerHTML = `
+        <div><strong>Clima no Exato Momento:</strong> ${time}</div>
+        <div><strong>Condição Climática:</strong> ${simpleWeather}</div>
+        <div><strong>Latitude:</strong> ${lat.toFixed(6)}</div>
+        <div><strong>Longitude:</strong> ${lon.toFixed(6)}</div>
+        <div><strong>Temperatura:</strong> ${temp}°C</div>
+        <div><strong>Vento:</strong> ${windSpeed} km/h</div>
+        <div><strong>Chuva (última hora):</strong> ${rain} mm</div>
+        <div><strong>Probabilidade de Chuva:</strong> ${rainProbability}%</div>
+        <div><strong>Umidade:</strong> ${humidity}%</div>
+        <div><strong>Pressão ao Nível do Mar:</strong> ${pressure} hPa</div>
+        <div><strong>Ponto de Orvalho:</strong> ${dewPoint}°C</div>
+      `;
+
+      // Obtém o índice UV
+      getUVIndex(lat, lon);
+    })
+    .catch(err => console.error('Erro ao obter dados do clima:', err));
+};
+
+
+    getWeatherData(initialLat, initialLon);
+
+    map.on('click', function (e) {
+      const { lat, lng } = e.latlng;
+
+      if (currentMarker) {
+        currentMarker.setLatLng([lat, lng]);
+      } else {
+        currentMarker = L.marker([lat, lng]).addTo(map);
+      }
+
+      getWeatherData(lat, lng);
+    });
+
+    const startWeatherUpdates = () => {
+      const interval = document.getElementById("timeSlider").value * 60000;
+      intervalId = setInterval(() => {
+        const center = map.getCenter();
+        getWeatherData(center.lat, center.lng);
+      }, interval);
+    };
+
+    const stopWeatherUpdates = () => {
+      clearInterval(intervalId);
+      document.getElementById("startBtn").disabled = false;
+      document.getElementById("stopBtn").disabled = true;
+    };
+
+    document.getElementById("startBtn").addEventListener("click", () => {
+      document.getElementById("startBtn").disabled = true;
+      document.getElementById("stopBtn").disabled = false;
+      startWeatherUpdates();
+    });
+
+    document.getElementById("stopBtn").addEventListener("click", () => {
+      stopWeatherUpdates();
+      document.getElementById("startBtn").disabled = false;
+    });
+
+    document.getElementById("timeSlider").addEventListener('input', function () {
+      const sliderValue = this.value;
+      document.getElementById("timeLabel").textContent = `Intervalo: ${sliderValue} min`;
+      if (intervalId) {
+        stopWeatherUpdates();
+        startWeatherUpdates();
+      }
+    });
+
+    document.getElementById("zoomToLocation").addEventListener('click', () => {
+      if (currentMarker) {
+        map.setView(currentMarker.getLatLng(), 17);
+      }
+    });
+
+    addWeatherLayers();
+
+    window.onload = () => {
+      document.getElementById("startBtn").click();
+      document.getElementById("zoomToLocation").click(); 
+    };
+  </script>
+</body>
+
+</html>
